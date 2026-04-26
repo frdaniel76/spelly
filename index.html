@@ -393,6 +393,72 @@
     border-radius: 6px;
   }
 
+  /* ========== Correction Panel (wrong answer) ========== */
+  .correction-panel {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    background: #fff1f2;
+    border-top: 3px solid #ff7676;
+    z-index: 50;
+    padding: 20px 18px 24px;
+    max-height: 75vh;
+    overflow-y: auto;
+  }
+  .correction-inner {
+    max-width: 720px;
+    margin: 0 auto;
+  }
+  .correction-header {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 14px;
+  }
+  .correction-header .feedback-title {
+    font-size: 22px; font-weight: 900; color: #b91c1c; margin: 0;
+  }
+  .correction-diff {
+    background: white;
+    border: 2px solid #fecaca;
+    border-radius: 14px;
+    padding: 14px 18px;
+    margin-bottom: 12px;
+  }
+  .correction-diff-label {
+    font-size: 11px; font-weight: 800; text-transform: uppercase;
+    letter-spacing: 0.5px; color: #888; margin-bottom: 4px;
+  }
+  .correction-diff-word {
+    font-size: 24px; font-weight: 900; letter-spacing: 1px;
+  }
+  .correction-tip {
+    background: #fffbeb;
+    border: 2px solid #fde68a;
+    border-radius: 14px;
+    padding: 14px 18px;
+    margin-bottom: 14px;
+    font-weight: 700;
+    color: #92400e;
+    font-size: 15px;
+  }
+  .correction-retype {
+    margin-bottom: 10px;
+  }
+  .correction-retype .label-prompt {
+    color: #b91c1c;
+  }
+  .correction-retype .word-input {
+    border-color: #fca5a5;
+  }
+  .correction-retype .word-input:focus {
+    border-color: #ef4444;
+  }
+  .correction-retype .word-input.retype-correct {
+    border-color: #86efac;
+    background: #f0fdf4;
+  }
+  .correction-actions {
+    display: flex; gap: 10px;
+  }
+
   .check-bar {
     position: fixed;
     bottom: 0; left: 0; right: 0;
@@ -1979,31 +2045,147 @@ function renderCheckBar(cur, lc) {
 }
 
 function renderFeedbackBar(cur, lc) {
-  const bar = document.createElement('div');
-  bar.className = 'feedback-bar ' + (lc.lastCorrect ? 'correct' : 'incorrect');
-
-  const content = document.createElement('div');
-  content.className = 'feedback-content';
-
-  const isExam = lc.mode === 'exam';
+  // --- Correct answer: enhanced feedback bar with prominent tip ---
   if (lc.lastCorrect) {
+    const bar = document.createElement('div');
+    bar.className = 'feedback-bar correct';
+
+    const content = document.createElement('div');
+    content.className = 'feedback-content';
+    const isExam = lc.mode === 'exam';
     content.innerHTML = `
       <div class="feedback-title">${isExam ? 'Recorded ✓' : 'Brilliant! ✨'}</div>
-      <div class="feedback-detail">${isExam ? '' : cur.tip}</div>`;
-  } else {
-    content.innerHTML = `
-      <div class="feedback-title">${isExam ? 'Noted.' : 'Not quite —'} the answer is <code>${cur.word}</code></div>
-      <div class="feedback-detail">${isExam ? '' : '💡 ' + cur.tip}</div>`;
+      <div class="feedback-detail" style="font-size:15px;margin-top:4px">${isExam ? '' : '💡 ' + cur.tip}</div>`;
+    bar.appendChild(content);
+
+    const continueBtn = document.createElement('button');
+    continueBtn.className = 'btn btn-primary';
+    continueBtn.textContent = 'Continue';
+    continueBtn.onclick = () => nextQuestion();
+    bar.appendChild(continueBtn);
+    return bar;
   }
-  bar.appendChild(content);
+
+  // --- Wrong answer: full correction panel ---
+  const panel = document.createElement('div');
+  panel.className = 'correction-panel';
+  const inner = document.createElement('div');
+  inner.className = 'correction-inner';
+
+  // Header
+  const header = document.createElement('div');
+  header.className = 'correction-header';
+  header.innerHTML = `
+    <div class="feedback-title">Not quite!</div>
+    <button class="btn btn-ghost btn-sm" id="correction-hear">🔊 Hear it</button>`;
+  inner.appendChild(header);
+
+  // Diff: what you typed vs correct
+  const userTyped = lc.userInput || '';
+  if (userTyped) {
+    const diffBox = document.createElement('div');
+    diffBox.className = 'correction-diff';
+    diffBox.innerHTML = `
+      <div class="correction-diff-label">You typed</div>
+      <div class="correction-diff-word" style="color:#b91c1c;text-decoration:line-through;opacity:0.6">${userTyped}</div>
+      <div class="correction-diff-label" style="margin-top:10px">Correct spelling</div>
+      <div class="correction-diff-word">${diffWord(userTyped, cur.word)}</div>`;
+    inner.appendChild(diffBox);
+  } else {
+    const diffBox = document.createElement('div');
+    diffBox.className = 'correction-diff';
+    diffBox.innerHTML = `
+      <div class="correction-diff-label">Correct spelling</div>
+      <div class="correction-diff-word" style="color:#15803d">${cur.word}</div>`;
+    inner.appendChild(diffBox);
+  }
+
+  // Tip - prominent
+  const isExam = lc.mode === 'exam';
+  if (!isExam) {
+    const tip = document.createElement('div');
+    tip.className = 'correction-tip';
+    tip.innerHTML = `💡 <b>Remember:</b> ${cur.tip}`;
+    inner.appendChild(tip);
+
+    // Sentence context
+    const sentence = document.createElement('div');
+    sentence.className = 'sentence-bubble';
+    sentence.style.marginBottom = '14px';
+    sentence.innerHTML = `"${cur.sentence}"`;
+    inner.appendChild(sentence);
+  }
+
+  // Retype to continue
+  const retype = document.createElement('div');
+  retype.className = 'correction-retype';
+  const retypeLabel = document.createElement('div');
+  retypeLabel.className = 'label-prompt';
+  retypeLabel.textContent = 'Type it correctly to continue';
+  retype.appendChild(retypeLabel);
+
+  const retypeInput = document.createElement('input');
+  retypeInput.type = 'text';
+  retypeInput.className = 'word-input';
+  retypeInput.autocomplete = 'off';
+  retypeInput.spellcheck = false;
+  retypeInput.autocapitalize = 'none';
+  retypeInput.placeholder = cur.word[0] + '...';
+  retype.appendChild(retypeInput);
+  inner.appendChild(retype);
+
+  // Actions
+  const actions = document.createElement('div');
+  actions.className = 'correction-actions';
 
   const continueBtn = document.createElement('button');
-  continueBtn.className = 'btn ' + (lc.lastCorrect ? 'btn-primary' : 'btn-pink');
+  continueBtn.className = 'btn btn-pink';
+  continueBtn.style.flex = '1';
   continueBtn.textContent = 'Continue';
-  continueBtn.onclick = () => nextQuestion();
-  bar.appendChild(continueBtn);
+  continueBtn.disabled = true;
+  continueBtn.style.opacity = '0.4';
+  actions.appendChild(continueBtn);
+  inner.appendChild(actions);
 
-  return bar;
+  panel.appendChild(inner);
+
+  // Wire up events after DOM is built
+  setTimeout(() => {
+    retypeInput.focus();
+    const hearBtn = document.getElementById('correction-hear');
+    if (hearBtn) hearBtn.onclick = () => speak(cur.word, { rate: 0.85 });
+  }, 60);
+
+  retypeInput.oninput = () => {
+    const typed = retypeInput.value.trim().toLowerCase();
+    const target = cur.word.trim().toLowerCase();
+    if (typed === target) {
+      retypeInput.classList.add('retype-correct');
+      continueBtn.disabled = false;
+      continueBtn.style.opacity = '1';
+      continueBtn.className = 'btn btn-primary';
+      continueBtn.style.flex = '1';
+    } else {
+      retypeInput.classList.remove('retype-correct');
+      continueBtn.disabled = true;
+      continueBtn.style.opacity = '0.4';
+      continueBtn.className = 'btn btn-pink';
+      continueBtn.style.flex = '1';
+    }
+  };
+
+  retypeInput.onkeydown = (e) => {
+    if (e.key === 'Enter' && !continueBtn.disabled) {
+      e.preventDefault();
+      nextQuestion();
+    }
+  };
+
+  continueBtn.onclick = () => {
+    if (!continueBtn.disabled) nextQuestion();
+  };
+
+  return panel;
 }
 
 function submitAnswer(skipped = false) {
