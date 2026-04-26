@@ -1084,15 +1084,7 @@ function getMasteredWords() {
 }
 
 function getReviewMixWords(count = 10) {
-  // Build a smart mix: prioritise unsuccessful words, then unseen, then random.
-  const mistakes = getMistakeWords();
-  const seenButNotMastered = WORDS.filter(w => {
-    const s = state.wordStats[w.word];
-    return s && !s.lastWrong && (s.mastery ?? 0) < 3;
-  });
-  const unseen = WORDS.filter(w => !state.wordStats[w.word]);
-  const all = shuffle(mistakes).concat(shuffle(seenButNotMastered)).concat(shuffle(unseen));
-  return all.slice(0, count);
+  return shuffle(WORDS).slice(0, count);
 }
 
 function recordAttempt(word, correct) {
@@ -1232,25 +1224,9 @@ function startReviewLesson() {
   updateStreakOnSession();
 }
 
-// Build a long, smartly-ordered pool from across ALL categories.
-// Priority: mistakes first, then unseen, then everything else; deduped.
+// Pure random pool of all words.
 function buildMixedPool() {
-  const wrongs = getMistakeWords();
-  const seenButNotMastered = WORDS.filter(w => {
-    const s = state.wordStats[w.word];
-    return s && !s.lastWrong && (s.mastery ?? 0) < 3;
-  });
-  const unseen = WORDS.filter(w => !state.wordStats[w.word]);
-  const pool = shuffle(wrongs)
-    .concat(shuffle(unseen))
-    .concat(shuffle(seenButNotMastered))
-    .concat(shuffle(WORDS));
-  const seen = new Set();
-  const out = [];
-  for (const w of pool) {
-    if (!seen.has(w.word)) { seen.add(w.word); out.push(w); }
-  }
-  return out;
+  return shuffle(WORDS);
 }
 
 // "Mixed Random" — replaces the old 12-question Daily Challenge.
