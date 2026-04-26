@@ -459,6 +459,48 @@
     display: flex; gap: 10px;
   }
 
+  /* ========== Correct Answer Panel ========== */
+  .correct-panel {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    background: #f0fdf4;
+    border-top: 3px solid #86efac;
+    z-index: 50;
+    padding: 20px 18px 24px;
+  }
+  .correct-inner {
+    max-width: 720px;
+    margin: 0 auto;
+  }
+  .correct-header {
+    display: flex; align-items: center; gap: 10px;
+    margin-bottom: 12px;
+  }
+  .correct-header .feedback-title {
+    font-size: 24px; font-weight: 900; color: #15803d; margin: 0;
+  }
+  .correct-word {
+    background: white;
+    border: 2px solid #bbf7d0;
+    border-radius: 14px;
+    padding: 14px 18px;
+    margin-bottom: 12px;
+    text-align: center;
+  }
+  .correct-word-text {
+    font-size: 28px; font-weight: 900; color: #15803d; letter-spacing: 1px;
+  }
+  .correct-tip {
+    background: #ecfdf5;
+    border: 2px solid #a7f3d0;
+    border-radius: 14px;
+    padding: 14px 18px;
+    margin-bottom: 14px;
+    font-weight: 700;
+    color: #065f46;
+    font-size: 15px;
+  }
+
   .check-bar {
     position: fixed;
     bottom: 0; left: 0; right: 0;
@@ -2045,25 +2087,44 @@ function renderCheckBar(cur, lc) {
 }
 
 function renderFeedbackBar(cur, lc) {
-  // --- Correct answer: enhanced feedback bar with prominent tip ---
+  // --- Correct answer: full panel with word and memory tip ---
   if (lc.lastCorrect) {
-    const bar = document.createElement('div');
-    bar.className = 'feedback-bar correct';
+    const panel = document.createElement('div');
+    panel.className = 'correct-panel';
+    const inner = document.createElement('div');
+    inner.className = 'correct-inner';
 
-    const content = document.createElement('div');
-    content.className = 'feedback-content';
     const isExam = lc.mode === 'exam';
-    content.innerHTML = `
-      <div class="feedback-title">${isExam ? 'Recorded ✓' : 'Brilliant! ✨'}</div>
-      <div class="feedback-detail" style="font-size:15px;margin-top:4px">${isExam ? '' : '💡 ' + cur.tip}</div>`;
-    bar.appendChild(content);
 
+    // Header
+    const header = document.createElement('div');
+    header.className = 'correct-header';
+    header.innerHTML = `<div class="feedback-title">${isExam ? 'Recorded ✓' : 'Brilliant! ✨'}</div>`;
+    inner.appendChild(header);
+
+    // Word display
+    const wordBox = document.createElement('div');
+    wordBox.className = 'correct-word';
+    wordBox.innerHTML = `<div class="correct-word-text">${cur.word}</div>`;
+    inner.appendChild(wordBox);
+
+    // Memory tip
+    if (!isExam) {
+      const tip = document.createElement('div');
+      tip.className = 'correct-tip';
+      tip.innerHTML = `💡 <b>Remember:</b> ${cur.tip}`;
+      inner.appendChild(tip);
+    }
+
+    // Continue button
     const continueBtn = document.createElement('button');
-    continueBtn.className = 'btn btn-primary';
+    continueBtn.className = 'btn btn-primary btn-block';
     continueBtn.textContent = 'Continue';
     continueBtn.onclick = () => nextQuestion();
-    bar.appendChild(continueBtn);
-    return bar;
+    inner.appendChild(continueBtn);
+
+    panel.appendChild(inner);
+    return panel;
   }
 
   // --- Wrong answer: full correction panel ---
