@@ -1110,7 +1110,8 @@ function speak(text, opts = {}) {
 
 function speakWordFriendly(word) {
   stopAudio();
-  playAudio(encodeURIComponent(word) + '.mp3').catch(() => speakFallback(word, { rate: 0.9 }));
+  // Plays: word, word, then in a sentence
+  playAudio(encodeURIComponent(word) + '_friendly.mp3').catch(() => speakFallback(word, { rate: 0.9 }));
 }
 
 function speakSatsStyle(word, sentence) {
