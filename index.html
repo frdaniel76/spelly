@@ -1017,55 +1017,46 @@ function updateStreakOnSession() {
 }
 
 /* =========================================================
-   SPEECH (Web Speech API, prefers warm UK English voices)
+   SPEECH — Pre-recorded MP3 audio (British, en-GB-LibbyNeural)
+   with Web Speech API fallback.
    ========================================================= */
+
+const AUDIO_BASE = 'audio/';
+let currentAudio = null;
+
+// Play a pre-recorded MP3. Returns a promise. Falls back to Web Speech API.
+function playAudio(filename) {
+  return new Promise((resolve) => {
+    if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+    const audio = new Audio(AUDIO_BASE + filename);
+    currentAudio = audio;
+    audio.onended = () => { currentAudio = null; resolve(); };
+    audio.onerror = () => { currentAudio = null; resolve(); };
+    audio.play().catch(() => { currentAudio = null; resolve(); });
+  });
+}
+
+// Stop any currently playing audio.
+function stopAudio() {
+  if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+  if ('speechSynthesis' in window) { try { speechSynthesis.cancel(); } catch (e) {} }
+}
+
+// --- Web Speech API fallback ---
 
 let preferredVoice = null;
 
-// Ranked list of known friendly/warm voices across platforms.
-// Higher index = better. Names are case-insensitive substring matches.
 const FRIENDLY_VOICE_RANK = [
-  // Microsoft Edge "Natural" voices — by far the warmest on Windows
-  { match: /libby.*(natural|online)/i,    score: 100 },
-  { match: /sonia.*(natural|online)/i,    score: 99  },
-  { match: /mia.*(natural|online)/i,      score: 98  },
-  { match: /maisie.*(natural|online)/i,   score: 97  },
-  { match: /ryan.*(natural|online)/i,     score: 90  },
-  // Microsoft classic UK voices
-  { match: /libby/i,                      score: 85 },
-  { match: /sonia/i,                      score: 84 },
-  { match: /mia/i,                        score: 83 },
-  { match: /hazel/i,                      score: 82 },
-  // Apple — warm female UK voices
+  { match: /libby.*(natural|online)/i, score: 100 },
+  { match: /sonia.*(natural|online)/i, score: 99 },
   { match: /serena.*(premium|enhanced)/i, score: 95 },
-  { match: /kate.*(premium|enhanced)/i,   score: 94 },
-  { match: /stephanie.*(premium|enhanced)/i, score: 93 },
-  { match: /serena/i,                     score: 80 },
-  { match: /kate/i,                       score: 79 },
-  { match: /stephanie/i,                  score: 78 },
-  { match: /martha/i,                     score: 75 },
-  { match: /fiona/i,                      score: 70 }, // Scottish, gentle
-  { match: /moira/i,                      score: 65 }, // Irish, friendly
-  { match: /karen/i,                      score: 60 }, // Australian female, warm
-  // Google Chrome
-  { match: /google uk english female/i,   score: 88 },
-  { match: /google uk english male/i,     score: 60 },
+  { match: /kate.*(premium|enhanced)/i, score: 94 },
+  { match: /google uk english female/i, score: 88 },
+  { match: /libby/i, score: 85 },
+  { match: /sonia/i, score: 84 },
+  { match: /serena/i, score: 80 },
+  { match: /kate/i, score: 79 },
 ];
-
-function scoreVoice(v) {
-  const langOk = /en-GB/i.test(v.lang) ? 30 :
-                 /en-AU/i.test(v.lang) ? 12 :
-                 /en-IE/i.test(v.lang) ? 10 :
-                 /en-/i.test(v.lang)   ? 5  : 0;
-  let bonus = 0;
-  for (const entry of FRIENDLY_VOICE_RANK) {
-    if (entry.match.test(v.name)) { bonus = Math.max(bonus, entry.score); }
-  }
-  // Prefer female-ish voices generally for kids' learning
-  if (/female/i.test(v.name)) bonus += 5;
-  if (/male/i.test(v.name) && !/female/i.test(v.name)) bonus -= 4;
-  return langOk + bonus;
-}
 
 function pickVoice() {
   if (!('speechSynthesis' in window)) return null;
@@ -1073,7 +1064,12 @@ function pickVoice() {
   if (!voices.length) return null;
   let best = null, bestScore = -Infinity;
   voices.forEach(v => {
-    const s = scoreVoice(v);
+    const langOk = /en-GB/i.test(v.lang) ? 30 : /en-/i.test(v.lang) ? 5 : 0;
+    let bonus = 0;
+    for (const entry of FRIENDLY_VOICE_RANK) {
+      if (entry.match.test(v.name)) { bonus = Math.max(bonus, entry.score); }
+    }
+    const s = langOk + bonus;
     if (s > bestScore) { bestScore = s; best = v; }
   });
   return best;
@@ -1084,74 +1080,75 @@ if (typeof speechSynthesis !== 'undefined') {
   preferredVoice = pickVoice();
 }
 
-// Friendly defaults: a touch slower for clarity, a touch higher pitch for warmth.
-function speak(text, opts = {}) {
+function speakFallback(text, opts = {}) {
   if (!('speechSynthesis' in window)) return;
   try { speechSynthesis.cancel(); } catch (e) {}
   const u = new SpeechSynthesisUtterance(text);
   u.lang = 'en-GB';
   if (!preferredVoice) preferredVoice = pickVoice();
   if (preferredVoice) u.voice = preferredVoice;
-  u.rate   = opts.rate   ?? 0.88;   // calm, clear
-  u.pitch  = opts.pitch  ?? 1.18;   // brighter, more cheerful
+  u.rate = opts.rate ?? 0.88;
+  u.pitch = opts.pitch ?? 1.18;
   u.volume = opts.volume ?? 1;
-  if (opts.onstart) u.onstart = opts.onstart;
-  if (opts.onend)   u.onend   = opts.onend;
+  if (opts.onend) u.onend = opts.onend;
   speechSynthesis.speak(u);
 }
 
-// Speak the word in a slightly more "encouraging teacher" tone:
-// say it once at normal friendly pace, then a bit slower, with a tiny gap.
+// --- Public speech functions (try MP3 first, fallback to Web Speech) ---
+
+function speak(text, opts = {}) {
+  stopAudio();
+  // Check if text is just a single known word
+  const clean = text.replace(/^(Correct! |The word is )/, '').trim().toLowerCase();
+  const wordObj = WORDS.find(w => w.word.toLowerCase() === clean);
+  if (wordObj) {
+    playAudio(encodeURIComponent(wordObj.word) + '.mp3').catch(() => speakFallback(text, opts));
+  } else {
+    speakFallback(text, opts);
+  }
+}
+
 function speakWordFriendly(word) {
-  if (!('speechSynthesis' in window)) return;
-  try { speechSynthesis.cancel(); } catch (e) {}
-  if (!preferredVoice) preferredVoice = pickVoice();
-
-  const u1 = new SpeechSynthesisUtterance(word);
-  u1.lang = 'en-GB';
-  if (preferredVoice) u1.voice = preferredVoice;
-  u1.rate = 0.9;  u1.pitch = 1.18;
-
-  speechSynthesis.speak(u1);
+  stopAudio();
+  playAudio(encodeURIComponent(word) + '.mp3').catch(() => speakFallback(word, { rate: 0.9 }));
 }
 
-// Real SATS spelling test format:
-//   "Your word is X."
-//   pause
-//   "<sentence containing X>"
-//   pause
-//   "Your word is X."
 function speakSatsStyle(word, sentence) {
-  if (!('speechSynthesis' in window)) return;
-  try { speechSynthesis.cancel(); } catch (e) {}
-  if (!preferredVoice) preferredVoice = pickVoice();
-  const make = (text, rate, pitch) => {
-    const u = new SpeechSynthesisUtterance(text);
-    u.lang = 'en-GB';
-    if (preferredVoice) u.voice = preferredVoice;
-    u.rate = rate; u.pitch = pitch;
-    return u;
-  };
-  speechSynthesis.speak(make("Your word is " + word + ".", 0.88, 1.15));
-  speechSynthesis.speak(make(sentence, 0.92, 1.10));
-  speechSynthesis.speak(make("Your word is " + word + ".", 0.88, 1.15));
+  stopAudio();
+  playAudio(encodeURIComponent(word) + '_sats.mp3').catch(() => {
+    // Fallback: chain Web Speech utterances
+    if (!('speechSynthesis' in window)) return;
+    if (!preferredVoice) preferredVoice = pickVoice();
+    const make = (text, rate, pitch) => {
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = 'en-GB';
+      if (preferredVoice) u.voice = preferredVoice;
+      u.rate = rate; u.pitch = pitch;
+      return u;
+    };
+    speechSynthesis.speak(make("Your word is " + word + ".", 0.88, 1.15));
+    speechSynthesis.speak(make(sentence, 0.92, 1.10));
+    speechSynthesis.speak(make("Your word is " + word + ".", 0.88, 1.15));
+  });
 }
 
-// Web Speech often won't speak until the user has interacted with the page.
-// This primes the engine on the very first user gesture so auto-play works
-// from the next question onwards.
-let speechPrimed = false;
-function primeSpeechOnce() {
-  if (speechPrimed) return;
-  speechPrimed = true;
+// Prime audio context on first user gesture (needed for mobile).
+let audioPrimed = false;
+function primeAudioOnce() {
+  if (audioPrimed) return;
+  audioPrimed = true;
   try {
-    const u = new SpeechSynthesisUtterance('');
-    u.volume = 0;
-    speechSynthesis.speak(u);
+    const a = new Audio();
+    a.play().catch(() => {});
+    if ('speechSynthesis' in window) {
+      const u = new SpeechSynthesisUtterance('');
+      u.volume = 0;
+      speechSynthesis.speak(u);
+    }
   } catch (e) {}
 }
 ['pointerdown','keydown','touchstart'].forEach(ev =>
-  window.addEventListener(ev, primeSpeechOnce, { once: true, passive: true })
+  window.addEventListener(ev, primeAudioOnce, { once: true, passive: true })
 );
 
 /* =========================================================
@@ -1806,13 +1803,13 @@ function renderSpeakerCard(cur) {
     const slow = document.createElement('button');
     slow.className = 'btn btn-ghost btn-sm';
     slow.innerHTML = '🐢 Hear slowly';
-    slow.onclick = () => speak(cur.word, { rate: 0.55 });
+    slow.onclick = () => { stopAudio(); speakFallback(cur.word, { rate: 0.55 }); };
     actions.appendChild(slow);
 
     const inSentence = document.createElement('button');
     inSentence.className = 'btn btn-ghost btn-sm';
     inSentence.innerHTML = '💬 Hear in sentence';
-    inSentence.onclick = () => speak(cur.sentence);
+    inSentence.onclick = () => { stopAudio(); playAudio(encodeURIComponent(cur.word) + '_sentence.mp3').catch(() => speakFallback(cur.sentence)); };
     actions.appendChild(inSentence);
 
     card.appendChild(actions);
@@ -1837,6 +1834,11 @@ function renderTypeInput(cur, lc) {
   input.autocomplete = 'off';
   input.spellcheck = false;
   input.autocapitalize = 'none';
+  input.autocorrect = 'off';
+  input.setAttribute('autocorrect', 'off');
+  input.setAttribute('data-gramm', 'false');
+  input.setAttribute('data-gramm_editor', 'false');
+  input.setAttribute('data-enable-grammarly', 'false');
   input.placeholder = '...';
   input.value = lc.userInput || '';
   input.oninput = e => { lc.userInput = e.target.value; };
@@ -2191,6 +2193,11 @@ function renderFeedbackBar(cur, lc) {
   retypeInput.autocomplete = 'off';
   retypeInput.spellcheck = false;
   retypeInput.autocapitalize = 'none';
+  retypeInput.autocorrect = 'off';
+  retypeInput.setAttribute('autocorrect', 'off');
+  retypeInput.setAttribute('data-gramm', 'false');
+  retypeInput.setAttribute('data-gramm_editor', 'false');
+  retypeInput.setAttribute('data-enable-grammarly', 'false');
   retypeInput.placeholder = cur.word[0] + '...';
   retype.appendChild(retypeInput);
   inner.appendChild(retype);
