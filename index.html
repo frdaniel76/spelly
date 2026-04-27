@@ -1,4 +1,111 @@
 <!DOCTYPE html>
+<!--
+  ============================================================
+  SPELLY — Year 6 SATS Spelling Trainer
+  ============================================================
+
+  OVERVIEW
+  --------
+  A single-file, Duolingo-style web app that helps UK Year 6
+  students practise spelling for their SATS exams. No build
+  step, no dependencies — just open in a browser.
+
+  ARCHITECTURE
+  ------------
+  Everything lives in this one HTML file (+ an audio/ folder):
+    • <style>        — All CSS (variables, layout, animations)
+    • <svg>          — Inline SVG mascot template ("Spelly" the star)
+    • <script>       — All JavaScript (data, state, audio, rendering)
+    • audio/         — Pre-recorded MP3 files (British en-GB voice)
+                       Filenames: {word}.mp3, {word}_friendly.mp3,
+                       {word}_sats.mp3, {word}_sentence.mp3
+
+  KEY SECTIONS IN THE SCRIPT
+  --------------------------
+  1. WORD DATA (const WORDS)
+     Array of ~160 word objects, each with:
+       { word, sentence, tip, category }
+     Grouped by spelling pattern (e.g. "Prefix dis-", "-tion words",
+     "Silent letters", "UK spellings", etc.).
+     To add new words: push new objects into this array AND generate
+     matching MP3 files in audio/. The app auto-discovers categories.
+
+  2. STATE MANAGEMENT
+     Uses localStorage (key: 'spelly_v1_state').
+     Tracks: xp, streak, hearts, lessonProgress (per category),
+     wordStats (per word — attempts, correct, mastery 0–3),
+     unlockedTier, sessionHistory (last 200 sessions).
+     Functions: loadState(), saveState(), resetState().
+
+  3. AUDIO / SPEECH
+     Primary: pre-recorded MP3 files via playAudio(filename).
+     Fallback: Web Speech API (speakFallback) if MP3 is missing.
+     stopAudio() cancels both MP3 playback and speechSynthesis.
+     speak(text, opts)          — Plays MP3 or falls back to TTS
+     speakWordFriendly(word)    — Single word, encouraging tone
+     speakSatsStyle(word, sent) — SATS format: word / sentence / word
+     Voice selection ranks known UK voices (Apple, Microsoft, Google)
+     via scoreVoice() for the TTS fallback path.
+
+  4. HELPERS
+     shuffle(), getCategories(), getCategoryWords(),
+     getMistakeWords(), getMasteredWords(), getReviewMixWords(),
+     recordAttempt(), awardXP(), fireConfetti(),
+     compareSpelling(), diffWord(), generateMisspellings().
+
+  5. ROUTING
+     Simple view-state object: { route, data }.
+     Routes: HOME, LESSON, RESULT, STATS, WORDS.
+     go(route, data) triggers re-render.
+
+  6. LESSON ENGINE
+     startLesson(category)   — Category drill (all words in group)
+     startReviewLesson()     — Mistake review (words previously wrong)
+     startMixedRandom()      — All words, shuffled, unlimited
+     startPracticeSession()  — 12-minute timed session
+     startExam(count)        — 20-word mock SATS exam (no hints)
+     Question types:
+       'type'   — free-text input
+       'tiles'  — tap-letter tiles in order
+       'choose' — multiple-choice (correct + generated misspellings)
+     submitAnswer() scores, nextQuestion() advances,
+     finishLesson() records results → RESULT screen.
+
+  7. RENDERING
+     Fully imperative DOM construction (no framework).
+     render() dispatches to renderHome(), renderLesson(),
+     renderResult(), renderStats(), renderWordList().
+
+  GAME MODES
+  ----------
+  • Category Lessons — drill one spelling pattern at a time
+  • Mistake Review   — revisit words you got wrong
+  • Mixed Random     — all words shuffled, endless
+  • 12-min Practice  — timed mixed session with countdown
+  • Exam Mode        — 20 words, SATS-style audio, no hints
+
+  CUSTOMISATION TIPS
+  ------------------
+  • Word list: edit the WORDS array + add matching MP3s.
+  • Voice speed/pitch: edit speak() / speakFallback() defaults.
+  • Lesson length: edit startExam(count) default param.
+  • Practice duration: edit PRACTICE_DURATION_MS.
+  • New question type: add case in pickQuestionType(), new render
+    function, handle in submitAnswer().
+  • Theme colours: edit the CSS :root variables.
+
+  KNOWN LIMITATIONS
+  -----------------
+  • Web Speech API quality varies by browser/OS (fallback only).
+  • All data in localStorage — per-device, not synced.
+  • Misspelling generation is rule-based, may produce real words.
+
+  BROWSER SUPPORT
+  ---------------
+  Modern browsers (Chrome, Safari, Edge, Firefox). Best audio
+  comes from pre-recorded MP3s; TTS fallback works everywhere.
+  ============================================================
+-->
 <html lang="en-GB">
 <head>
 <meta charset="UTF-8" />
@@ -2257,10 +2364,26 @@ function renderFeedbackBar(cur, lc) {
   return panel;
 }
 
+// Cooldown guard: prevents double-click from triggering both
+// "Check" and then instantly "Continue" on the re-rendered button.
+let _actionCooldown = 0;
+function actionThrottled() {
+  const now = Date.now();
+  if (now - _actionCooldown < 350) return true;
+  _actionCooldown = now;
+  return false;
+}
+
 function submitAnswer(skipped = false) {
+  if (actionThrottled()) return;
+
   const lc = view.data;
   const cur = lc.words[lc.index];
   const input = lc.userInput || '';
+
+  // Prevent accidental submission of an empty answer (unless explicitly skipped).
+  if (!skipped && input.trim() === '') return;
+
   const correct = !skipped && compareSpelling(input, cur.word);
 
   lc.answered = true;
@@ -2285,6 +2408,12 @@ function submitAnswer(skipped = false) {
 }
 
 function nextQuestion() {
+  if (actionThrottled()) return;
+
+  // Stop any in-progress audio from the previous word so it doesn't
+  // leak into the next question.
+  stopAudio();
+
   const lc = view.data;
   if (lc.index + 1 >= lc.words.length) {
     // Unbounded modes top up their pool with another shuffled batch
