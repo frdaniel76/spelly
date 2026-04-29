@@ -1315,13 +1315,16 @@ let currentAudio = null;
 
 // Play a pre-recorded MP3. Returns a promise. Falls back to Web Speech API.
 function playAudio(filename) {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     if (currentAudio) { currentAudio.pause(); currentAudio = null; }
     const audio = new Audio(AUDIO_BASE + filename);
     currentAudio = audio;
-    audio.onended = () => { currentAudio = null; resolve(); };
-    audio.onerror = () => { currentAudio = null; resolve(); };
-    audio.play().catch(() => { currentAudio = null; resolve(); });
+    // Guard: only clear currentAudio if it still points to THIS element.
+    // Without this, an old play()'s async rejection clobbers the reference
+    // to a newer Audio, causing overlapping/broken playback.
+    audio.onended = () => { if (currentAudio === audio) currentAudio = null; resolve(); };
+    audio.onerror = () => { if (currentAudio === audio) { currentAudio = null; reject(); } else resolve(); };
+    audio.play().catch(() => { if (currentAudio === audio) { currentAudio = null; reject(); } else resolve(); });
   });
 }
 
