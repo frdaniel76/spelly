@@ -1311,26 +1311,34 @@ function updateStreakOnSession() {
    ========================================================= */
 
 const AUDIO_BASE = 'audio/';
-let currentAudio = null;
+// Single reusable Audio element — iOS/iPadOS requires the same element
+// to be unlocked once via user gesture; creating new Audio() each time
+// causes playback to be blocked after the first interaction.
+const audioEl = new Audio();
+let playGen = 0; // generation counter to ignore stale handlers
 
-// Play a pre-recorded MP3. Returns a promise. Falls back to Web Speech API.
+// Play a pre-recorded MP3. Returns a promise that rejects on failure
+// (so callers can fall back to Web Speech API).
 function playAudio(filename) {
+  const gen = ++playGen;
+  audioEl.pause();
+  audioEl.onended = null;
+  audioEl.onerror = null;
   return new Promise((resolve, reject) => {
-    if (currentAudio) { currentAudio.pause(); currentAudio = null; }
-    const audio = new Audio(AUDIO_BASE + filename);
-    currentAudio = audio;
-    // Guard: only clear currentAudio if it still points to THIS element.
-    // Without this, an old play()'s async rejection clobbers the reference
-    // to a newer Audio, causing overlapping/broken playback.
-    audio.onended = () => { if (currentAudio === audio) currentAudio = null; resolve(); };
-    audio.onerror = () => { if (currentAudio === audio) { currentAudio = null; reject(); } else resolve(); };
-    audio.play().catch(() => { if (currentAudio === audio) { currentAudio = null; reject(); } else resolve(); });
+    audioEl.onended = () => { if (gen === playGen) resolve(); };
+    audioEl.onerror = () => { if (gen === playGen) reject(); };
+    audioEl.src = AUDIO_BASE + filename;
+    audioEl.load();
+    audioEl.play().catch(() => { if (gen === playGen) reject(); });
   });
 }
 
 // Stop any currently playing audio.
 function stopAudio() {
-  if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+  playGen++;
+  audioEl.pause();
+  audioEl.onended = null;
+  audioEl.onerror = null;
   if ('speechSynthesis' in window) { try { speechSynthesis.cancel(); } catch (e) {} }
 }
 
@@ -1426,13 +1434,14 @@ function speakSatsStyle(word, sentence) {
 }
 
 // Prime audio context on first user gesture (needed for mobile).
+// Unlocks the shared audioEl so subsequent programmatic plays work.
 let audioPrimed = false;
 function primeAudioOnce() {
   if (audioPrimed) return;
   audioPrimed = true;
   try {
-    const a = new Audio();
-    a.play().catch(() => {});
+    audioEl.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==';
+    audioEl.play().then(() => audioEl.pause()).catch(() => {});
     if ('speechSynthesis' in window) {
       const u = new SpeechSynthesisUtterance('');
       u.volume = 0;
