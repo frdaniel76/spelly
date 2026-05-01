@@ -145,7 +145,7 @@
   }
 
   * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; height: 100%; }
+  html, body { margin: 0; padding: 0; height: 100%; touch-action: manipulation; }
 
   body {
     font-family: 'Nunito', system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -910,6 +910,21 @@
 </style>
 </head>
 <body>
+<script>
+// Block pinch-to-zoom and double-tap zoom globally on iOS/Android.
+// The viewport meta tag alone is not enough on modern iOS Safari.
+document.addEventListener('touchmove', function(e) {
+  if (e.touches.length > 1) e.preventDefault();
+}, { passive: false });
+
+// Block double-tap zoom by intercepting rapid taps
+let lastTouchEnd = 0;
+document.addEventListener('touchend', function(e) {
+  const now = Date.now();
+  if (now - lastTouchEnd < 300) e.preventDefault();
+  lastTouchEnd = now;
+}, { passive: false });
+</script>
 
 <div class="app" id="app"></div>
 
