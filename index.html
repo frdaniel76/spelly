@@ -845,18 +845,15 @@
   }
   .snake-hud .snake-level { color: #fbbf24; }
   .snake-hud .snake-best { color: #a78bfa; font-size: 11px; }
-  .snake-progress {
-    display: flex; justify-content: center; gap: 4px;
-    padding: 6px 0 8px; flex-wrap: wrap;
+  .snake-progress-bar {
+    height: 10px; border-radius: 99px; background: #e5e7eb;
+    margin: 4px 0 8px; overflow: hidden;
   }
-  .snake-progress .sp-letter {
-    width: 26px; height: 30px; line-height: 30px;
-    border-radius: 6px; font-weight: 900; font-size: 15px;
-    text-transform: uppercase; text-align: center;
+  .snake-progress-fill {
+    height: 100%; border-radius: 99px;
+    background: linear-gradient(90deg, #10b981, #34d399);
+    transition: width .25s ease;
   }
-  .sp-letter.collected { background: var(--primary); color: #fff; }
-  .sp-letter.blank { background: #e5e7eb; color: #9ca3af; }
-  .sp-letter.current { background: #fef3c7; color: #92400e; border: 2px solid #fbbf24; }
   .snake-canvas-wrap {
     position: relative; display: inline-block;
     border-radius: 14px; overflow: hidden;
@@ -3150,6 +3147,53 @@ let snakeAnimId  = null;
 let snakeLastTick = 0;
 let snakeTouchX = 0, snakeTouchY = 0;
 
+// --- Snake SFX via Web Audio API ---
+let snakeAudioCtx = null;
+function getSnakeAudioCtx() {
+  if (!snakeAudioCtx) snakeAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (snakeAudioCtx.state === 'suspended') snakeAudioCtx.resume();
+  return snakeAudioCtx;
+}
+function snakeSfx(type) {
+  try {
+    const ctx = getSnakeAudioCtx();
+    const t = ctx.currentTime;
+    if (type === 'eat') {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.connect(g); g.connect(ctx.destination); o.type = 'sine';
+      o.frequency.setValueAtTime(520, t); o.frequency.linearRampToValueAtTime(780, t + 0.08);
+      g.gain.setValueAtTime(0.18, t); g.gain.linearRampToValueAtTime(0, t + 0.12);
+      o.start(t); o.stop(t + 0.12);
+    } else if (type === 'wrong') {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.connect(g); g.connect(ctx.destination); o.type = 'square';
+      o.frequency.setValueAtTime(180, t); o.frequency.linearRampToValueAtTime(120, t + 0.15);
+      g.gain.setValueAtTime(0.12, t); g.gain.linearRampToValueAtTime(0, t + 0.18);
+      o.start(t); o.stop(t + 0.18);
+    } else if (type === 'die') {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.connect(g); g.connect(ctx.destination); o.type = 'sawtooth';
+      o.frequency.setValueAtTime(300, t); o.frequency.linearRampToValueAtTime(80, t + 0.35);
+      g.gain.setValueAtTime(0.15, t); g.gain.linearRampToValueAtTime(0, t + 0.4);
+      o.start(t); o.stop(t + 0.4);
+    } else if (type === 'win') {
+      [523, 659, 784, 1047].forEach((freq, i) => {
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.connect(g); g.connect(ctx.destination); o.type = 'sine'; o.frequency.value = freq;
+        const s = t + i * 0.1; g.gain.setValueAtTime(0.15, s); g.gain.linearRampToValueAtTime(0, s + 0.2);
+        o.start(s); o.stop(s + 0.2);
+      });
+    } else if (type === 'complete') {
+      [523, 659, 784, 1047, 1319].forEach((freq, i) => {
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.connect(g); g.connect(ctx.destination); o.type = 'triangle'; o.frequency.value = freq;
+        const s = t + i * 0.12; g.gain.setValueAtTime(0.18, s); g.gain.linearRampToValueAtTime(0, s + 0.35);
+        o.start(s); o.stop(s + 0.35);
+      });
+    }
+  } catch (e) {}
+}
+
 // Pick 8 words of increasing length for a challenge.
 function pickSnakeWords() {
   const pool = shuffle(WORDS.slice());
@@ -3240,7 +3284,7 @@ function startSnakeLoop() {
       snakeLastTick = ts;
       updateSnake();
     }
-    drawSnakeCanvas();
+    drawSnakeCanvas(ts);
   }
   snakeAnimId = requestAnimationFrame(loop);
 }
@@ -3258,11 +3302,11 @@ function updateSnake() {
 
   // Wall collision
   if (nh.x < 0 || nh.x >= SNAKE_GRID || nh.y < 0 || nh.y >= SNAKE_GRID) {
-    st.phase = 'dead'; stopSnakeLoop(); renderSnakeOverlay(); return;
+    st.phase = 'dead'; stopSnakeLoop(); snakeSfx('die'); renderSnakeOverlay(); return;
   }
   // Self collision
   if (st.snake.some(s => s.x === nh.x && s.y === nh.y)) {
-    st.phase = 'dead'; stopSnakeLoop(); renderSnakeOverlay(); return;
+    st.phase = 'dead'; stopSnakeLoop(); snakeSfx('die'); renderSnakeOverlay(); return;
   }
 
   st.snake.unshift(nh);
@@ -3274,6 +3318,7 @@ function updateSnake() {
     if (hit.ch === needed) {
       hit.collected = true;
       st.nextLetter++;
+      snakeSfx('eat');
       updateSnakeProgress();
       // Don't pop tail → snake grows
       if (st.nextLetter >= st.letters.length) {
@@ -3285,8 +3330,10 @@ function updateSnake() {
         }
         if (completed >= SNAKE_LEVELS) {
           st.phase = 'complete';
+          snakeSfx('complete');
           fireConfetti(100);
         } else {
+          snakeSfx('win');
           fireConfetti(40);
         }
         renderSnakeOverlay();
@@ -3295,6 +3342,7 @@ function updateSnake() {
     } else {
       // Wrong letter: flash red, pass through
       st.wrongFlash = { x: nh.x, y: nh.y, t: performance.now() };
+      snakeSfx('wrong');
       st.snake.pop();
     }
   } else {
@@ -3310,13 +3358,17 @@ function setSnakeDir(x, y) {
 
 // --- Snake canvas drawing ---
 
-function drawSnakeCanvas() {
+function drawSnakeCanvas(now) {
   const canvas = document.getElementById('snake-canvas');
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
   const size = canvas.width;
   const cell = size / SNAKE_GRID;
   const st = snakeState;
+  if (!now) now = performance.now();
+
+  // Interpolation factor for smooth head movement
+  const t = st && st.phase === 'playing' ? Math.min(1, (now - snakeLastTick) / st.tickMs) : 0;
 
   // Background
   ctx.fillStyle = '#1a1a2e';
@@ -3334,47 +3386,59 @@ function drawSnakeCanvas() {
 
   if (!st) return;
 
-  // Letters
-  const now = performance.now();
+  // Letters — solid rounded blocks
   st.letterPositions.forEach((lp) => {
     if (lp.collected) return;
-    const cx = lp.x * cell + cell / 2;
-    const cy = lp.y * cell + cell / 2;
-    const isNext = lp.ch === st.letters[st.nextLetter] && !lp.collected;
+    const lx = lp.x * cell, ly = lp.y * cell;
+    const pad = 2;
 
-    // Wrong flash
     let flashRed = false;
     if (st.wrongFlash && st.wrongFlash.x === lp.x && st.wrongFlash.y === lp.y && now - st.wrongFlash.t < 400) {
       flashRed = true;
     }
 
-    // Letter background circle
+    // Solid block
+    ctx.fillStyle = flashRed ? '#dc2626' : '#334155';
     ctx.beginPath();
-    ctx.arc(cx, cy, cell * 0.4, 0, Math.PI * 2);
-    ctx.fillStyle = flashRed ? '#ef444488' : '#ffffff18';
+    ctx.roundRect(lx + pad, ly + pad, cell - pad * 2, cell - pad * 2, 5);
     ctx.fill();
+    ctx.strokeStyle = flashRed ? '#fca5a5' : '#64748b';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
 
     // Letter text
-    ctx.fillStyle = flashRed ? '#fca5a5' : '#ffffffcc';
+    ctx.fillStyle = flashRed ? '#fca5a5' : '#f8fafc';
     ctx.font = `bold ${Math.round(cell * 0.55)}px system-ui, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(lp.ch.toUpperCase(), cx, cy + 1);
+    ctx.fillText(lp.ch.toUpperCase(), lx + cell / 2, ly + cell / 2 + 1);
   });
 
-  // Snake
-  st.snake.forEach((s, i) => {
+  // Snake — draw back-to-front, smooth head + tail
+  const snakeLen = st.snake.length;
+  for (let i = snakeLen - 1; i >= 0; i--) {
+    const s = st.snake[i];
+    let drawX = s.x * cell, drawY = s.y * cell;
+
+    if (i === 0 && t > 0) {
+      drawX += st.dir.x * cell * t;
+      drawY += st.dir.y * cell * t;
+    }
+    if (i === snakeLen - 1 && snakeLen > 1 && t > 0) {
+      const prev = st.snake[snakeLen - 2];
+      drawX += (prev.x - s.x) * cell * t;
+      drawY += (prev.y - s.y) * cell * t;
+    }
+
     const isHead = i === 0;
     const pad = 1;
-    const r = 4;
     ctx.fillStyle = isHead ? '#34d399' : '#10b981';
     ctx.beginPath();
-    ctx.roundRect(s.x * cell + pad, s.y * cell + pad, cell - pad * 2, cell - pad * 2, r);
+    ctx.roundRect(drawX + pad, drawY + pad, cell - pad * 2, cell - pad * 2, 5);
     ctx.fill();
+
     if (isHead) {
-      // Eyes
-      const ex = s.x * cell + cell / 2;
-      const ey = s.y * cell + cell / 2;
+      const ex = drawX + cell / 2, ey = drawY + cell / 2;
       ctx.fillStyle = '#fff';
       ctx.beginPath();
       ctx.arc(ex - cell * 0.15, ey - cell * 0.1, cell * 0.08, 0, Math.PI * 2);
@@ -3386,7 +3450,7 @@ function drawSnakeCanvas() {
       ctx.arc(ex + cell * 0.15 + st.dir.x * 2, ey - cell * 0.1 + st.dir.y * 2, cell * 0.04, 0, Math.PI * 2);
       ctx.fill();
     }
-  });
+  }
 }
 
 // --- Snake input handlers ---
@@ -3421,15 +3485,9 @@ function detachSnakeInput() {
 // --- Update progress bar DOM without full re-render ---
 
 function updateSnakeProgress() {
-  const bar = document.getElementById('snake-progress');
-  if (!bar || !snakeState) return;
-  bar.innerHTML = '';
-  snakeState.letters.forEach((ch, i) => {
-    const span = document.createElement('span');
-    span.className = 'sp-letter ' + (i < snakeState.nextLetter ? 'collected' : i === snakeState.nextLetter ? 'current' : 'blank');
-    span.textContent = i < snakeState.nextLetter ? ch.toUpperCase() : '_';
-    bar.appendChild(span);
-  });
+  const fill = document.getElementById('snake-progress-fill');
+  if (!fill || !snakeState) return;
+  fill.style.width = (snakeState.nextLetter / snakeState.letters.length * 100) + '%';
 }
 
 // --- Overlay management (intro/won/dead/complete) without killing canvas ---
@@ -3447,22 +3505,18 @@ function renderSnakeOverlay() {
       <h2>Level ${lvl}</h2>
       <p>Listen to the word, then collect the letters in spelling order!</p>
       <div class="so-word" id="snake-word-reveal" style="visibility:hidden">${st.word}</div>
-      <button class="btn btn-primary" id="snake-go-btn" style="min-width:160px">🔊 Hear Word</button>
+      <div class="snake-btn-row">
+        <button class="btn btn-primary" id="snake-go-btn" style="min-width:140px">▶ Start!</button>
+        <button class="btn btn-ghost" id="snake-replay-btn" style="color:#fff;border-color:#ffffff44;min-width:100px">🔊 Replay</button>
+      </div>
     `;
-    const goBtn = ov.querySelector('#snake-go-btn');
-    let heard = false;
-    goBtn.onclick = () => {
-      if (!heard) {
-        heard = true;
-        speakSatsStyle(st.wordObj.word, st.wordObj.sentence);
-        goBtn.textContent = '▶ Start!';
-        goBtn.onclick = () => {
-          stopAudio();
-          st.phase = 'playing';
-          ov.style.display = 'none';
-          startSnakeLoop();
-        };
-      }
+    // Auto-play the word immediately
+    setTimeout(() => speakSatsStyle(st.wordObj.word, st.wordObj.sentence), 300);
+    ov.querySelector('#snake-go-btn').onclick = () => {
+      stopAudio(); st.phase = 'playing'; ov.style.display = 'none'; startSnakeLoop();
+    };
+    ov.querySelector('#snake-replay-btn').onclick = () => {
+      speakSatsStyle(st.wordObj.word, st.wordObj.sentence);
     };
   } else if (st.phase === 'won') {
     ov.innerHTML = `
@@ -3493,13 +3547,17 @@ function renderSnakeOverlay() {
       <div class="so-word">${st.word}</div>
       <p>You crashed! Give it another go.</p>
       <div class="snake-btn-row">
-        <button class="btn btn-primary" id="snake-retry-btn">🔄 Retry Level</button>
-        <button class="btn btn-ghost" id="snake-quit-btn" style="color:#fff;border-color:#ffffff44">Quit</button>
+        <button class="btn btn-primary" id="snake-retry-btn">🔄 Retry</button>
+        <button class="btn btn-ghost" id="snake-replay-btn2" style="color:#fff;border-color:#ffffff44">🔊 Hear Word</button>
       </div>
+      <button id="snake-quit-btn" style="margin-top:10px;background:none;border:none;color:#ffffff88;font-size:13px;cursor:pointer;text-decoration:underline">Quit to Home</button>
     `;
     ov.querySelector('#snake-retry-btn').onclick = () => {
       initSnakeLevel(st.level);
       render();
+    };
+    ov.querySelector('#snake-replay-btn2').onclick = () => {
+      speakSatsStyle(st.wordObj.word, st.wordObj.sentence);
     };
     ov.querySelector('#snake-quit-btn').onclick = () => { stopSnakeLoop(); detachSnakeInput(); go(ROUTES.HOME); };
   }
@@ -3524,16 +3582,14 @@ function renderSnake() {
   wrap.appendChild(hud);
 
   // Progress bar
-  const prog = document.createElement('div');
-  prog.className = 'snake-progress';
-  prog.id = 'snake-progress';
-  st.letters.forEach((ch, i) => {
-    const span = document.createElement('span');
-    span.className = 'sp-letter ' + (i < st.nextLetter ? 'collected' : i === st.nextLetter ? 'current' : 'blank');
-    span.textContent = i < st.nextLetter ? ch.toUpperCase() : '_';
-    prog.appendChild(span);
-  });
-  wrap.appendChild(prog);
+  const progWrap = document.createElement('div');
+  progWrap.className = 'snake-progress-bar';
+  const progFill = document.createElement('div');
+  progFill.className = 'snake-progress-fill';
+  progFill.id = 'snake-progress-fill';
+  progFill.style.width = (st.nextLetter / st.letters.length * 100) + '%';
+  progWrap.appendChild(progFill);
+  wrap.appendChild(progWrap);
 
   // Canvas + overlay container
   const cw = document.createElement('div');
