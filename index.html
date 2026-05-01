@@ -848,15 +848,17 @@
   }
   .snake-hud .snake-level { color: #fbbf24; }
   .snake-hud .snake-best { color: #a78bfa; font-size: 11px; }
-  .snake-progress-bar {
-    height: 8px; border-radius: 99px; background: #e5e7eb;
-    margin: 2px 0 4px; overflow: hidden;
+  .snake-slots {
+    display: flex; justify-content: center; gap: 3px;
+    padding: 4px 0 6px; flex-wrap: wrap;
   }
-  .snake-progress-fill {
-    height: 100%; border-radius: 99px;
-    background: linear-gradient(90deg, #10b981, #34d399);
-    transition: width .25s ease;
+  .snake-slots .ss {
+    width: 24px; height: 28px; line-height: 28px;
+    border-radius: 5px; font-weight: 900; font-size: 14px;
+    text-transform: uppercase; text-align: center;
   }
+  .ss.filled { background: var(--primary); color: #fff; }
+  .ss.empty { background: #334155; color: #64748b; }
   .snake-canvas-wrap {
     position: relative; display: block;
     border-radius: 14px; overflow: hidden;
@@ -3328,12 +3330,11 @@ function updateSnake() {
 
   st.dir = { ...st.nextDir };
   const head = st.snake[0];
-  const nh = { x: head.x + st.dir.x, y: head.y + st.dir.y };
-
-  // Wall collision
-  if (nh.x < 0 || nh.x >= SNAKE_GRID || nh.y < 0 || nh.y >= SNAKE_GRID) {
-    st.phase = 'dead'; stopSnakeLoop(); snakeSfx('die'); renderSnakeOverlay(); return;
-  }
+  // Wrap-around walls — pass through to the opposite side
+  const nh = {
+    x: (head.x + st.dir.x + SNAKE_GRID) % SNAKE_GRID,
+    y: (head.y + st.dir.y + SNAKE_GRID) % SNAKE_GRID
+  };
   // Self collision
   if (st.snake.some(s => s.x === nh.x && s.y === nh.y)) {
     st.phase = 'dead'; stopSnakeLoop(); snakeSfx('die'); renderSnakeOverlay(); return;
@@ -3370,10 +3371,10 @@ function updateSnake() {
         return;
       }
     } else {
-      // Wrong letter: flash red, pass through
+      // Wrong letter: disqualified
       st.wrongFlash = { x: nh.x, y: nh.y, t: performance.now() };
-      snakeSfx('wrong');
-      st.snake.pop();
+      snakeSfx('die');
+      st.phase = 'dead'; stopSnakeLoop(); renderSnakeOverlay(); return;
     }
   } else {
     st.snake.pop();
@@ -3451,24 +3452,33 @@ function drawSnakeCanvas(now) {
 
   // Snake — continuous smooth body using thick line + round caps
   const snakeLen = st.snake.length;
-  // Build interpolated positions
+  // Build interpolated positions (skip interpolation on wrap-around)
   const pts = [];
   for (let i = 0; i < snakeLen; i++) {
     const s = st.snake[i];
     let px = s.x * cell + cell / 2, py = s.y * cell + cell / 2;
     if (i === 0 && t > 0) {
-      px += st.dir.x * cell * t;
-      py += st.dir.y * cell * t;
+      // Only interpolate head if not about to wrap
+      const nx = s.x + st.dir.x;
+      const ny = s.y + st.dir.y;
+      if (nx >= 0 && nx < SNAKE_GRID && ny >= 0 && ny < SNAKE_GRID) {
+        px += st.dir.x * cell * t;
+        py += st.dir.y * cell * t;
+      }
     }
     if (i === snakeLen - 1 && snakeLen > 1 && t > 0) {
       const prev = st.snake[snakeLen - 2];
-      px += (prev.x - s.x) * cell * t;
-      py += (prev.y - s.y) * cell * t;
+      const dx = prev.x - s.x, dy = prev.y - s.y;
+      // Only interpolate tail if segments are adjacent (not wrapped)
+      if (Math.abs(dx) <= 1 && Math.abs(dy) <= 1) {
+        px += dx * cell * t;
+        py += dy * cell * t;
+      }
     }
     pts.push({ x: px, y: py });
   }
 
-  // Draw body as thick connected line
+  // Draw body — break the line at wrap-around points
   if (pts.length > 1) {
     ctx.strokeStyle = '#10b981';
     ctx.lineWidth = cell * 0.82;
@@ -3476,7 +3486,18 @@ function drawSnakeCanvas(now) {
     ctx.lineJoin = 'round';
     ctx.beginPath();
     ctx.moveTo(pts[0].x, pts[0].y);
-    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+    for (let i = 1; i < pts.length; i++) {
+      const dx = Math.abs(pts[i].x - pts[i-1].x);
+      const dy = Math.abs(pts[i].y - pts[i-1].y);
+      // If distance is more than 1.5 cells, it's a wrap — start a new sub-path
+      if (dx > cell * 1.5 || dy > cell * 1.5) {
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(pts[i].x, pts[i].y);
+      } else {
+        ctx.lineTo(pts[i].x, pts[i].y);
+      }
+    }
     ctx.stroke();
   }
 
@@ -3537,9 +3558,15 @@ function detachSnakeInput() {
 // --- Update progress bar DOM without full re-render ---
 
 function updateSnakeProgress() {
-  const fill = document.getElementById('snake-progress-fill');
-  if (!fill || !snakeState) return;
-  fill.style.width = (snakeState.nextLetter / snakeState.letters.length * 100) + '%';
+  const bar = document.getElementById('snake-slots');
+  if (!bar || !snakeState) return;
+  bar.innerHTML = '';
+  snakeState.letters.forEach((ch, i) => {
+    const span = document.createElement('span');
+    span.className = 'ss ' + (i < snakeState.nextLetter ? 'filled' : 'empty');
+    span.textContent = i < snakeState.nextLetter ? ch.toUpperCase() : '_';
+    bar.appendChild(span);
+  });
 }
 
 // --- Overlay management (intro/won/dead/complete) without killing canvas ---
@@ -3638,15 +3665,17 @@ function renderSnake() {
   `;
   wrap.appendChild(hud);
 
-  // Progress bar
-  const progWrap = document.createElement('div');
-  progWrap.className = 'snake-progress-bar';
-  const progFill = document.createElement('div');
-  progFill.className = 'snake-progress-fill';
-  progFill.id = 'snake-progress-fill';
-  progFill.style.width = (st.nextLetter / st.letters.length * 100) + '%';
-  progWrap.appendChild(progFill);
-  wrap.appendChild(progWrap);
+  // Letter slots
+  const slots = document.createElement('div');
+  slots.className = 'snake-slots';
+  slots.id = 'snake-slots';
+  st.letters.forEach((ch, i) => {
+    const span = document.createElement('span');
+    span.className = 'ss ' + (i < st.nextLetter ? 'filled' : 'empty');
+    span.textContent = i < st.nextLetter ? ch.toUpperCase() : '_';
+    slots.appendChild(span);
+  });
+  wrap.appendChild(slots);
 
   // Canvas + overlay — use full width
   const cw = document.createElement('div');
