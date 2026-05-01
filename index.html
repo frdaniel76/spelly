@@ -885,8 +885,8 @@
     position: fixed; bottom: 32px; right: 16px; z-index: 10;
     display: grid;
     grid-template-areas: ". up ." "left . right" ". down .";
-    grid-template-columns: 48px 6px 48px;
-    grid-template-rows: 44px 44px 44px;
+    grid-template-columns: 55px 8px 55px;
+    grid-template-rows: 50px 50px 50px;
     gap: 2px;
   }
   .snake-dpad.hidden { display: none; }
@@ -3425,7 +3425,7 @@ function drawSnakeCanvas(now) {
 
     // Letter text
     ctx.fillStyle = flashRed ? '#fca5a5' : '#f8fafc';
-    ctx.font = `bold ${Math.round(cell * 0.55)}px system-ui, sans-serif`;
+    ctx.font = `bold ${Math.round(cell * 0.65)}px system-ui, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(lp.ch.toUpperCase(), lx + cell / 2, ly + cell / 2 + 1);
