@@ -834,6 +834,67 @@
     .word-input { font-size: 18px; padding: 14px 16px; }
     .nav-tab { font-size: 11px; padding: 8px 12px; }
   }
+
+  /* ---- Snake Challenge Mode ---- */
+  .snake-wrap { text-align: center; padding: 0; }
+  .snake-hud {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 12px; margin-bottom: 6px;
+    background: #1a1a2e; color: #fff; border-radius: 14px;
+    font-weight: 800; font-size: 13px;
+  }
+  .snake-hud .snake-level { color: #fbbf24; }
+  .snake-hud .snake-best { color: #a78bfa; font-size: 11px; }
+  .snake-progress {
+    display: flex; justify-content: center; gap: 4px;
+    padding: 6px 0 8px; flex-wrap: wrap;
+  }
+  .snake-progress .sp-letter {
+    width: 26px; height: 30px; line-height: 30px;
+    border-radius: 6px; font-weight: 900; font-size: 15px;
+    text-transform: uppercase; text-align: center;
+  }
+  .sp-letter.collected { background: var(--primary); color: #fff; }
+  .sp-letter.blank { background: #e5e7eb; color: #9ca3af; }
+  .sp-letter.current { background: #fef3c7; color: #92400e; border: 2px solid #fbbf24; }
+  .snake-canvas-wrap {
+    position: relative; display: inline-block;
+    border-radius: 14px; overflow: hidden;
+    box-shadow: 0 4px 20px rgba(0,0,0,.3);
+    touch-action: none;
+  }
+  .snake-canvas-wrap canvas { display: block; }
+  .snake-overlay {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: rgba(26,26,46,.92); color: #fff;
+    text-align: center; padding: 20px; z-index: 2;
+    border-radius: 14px;
+  }
+  .snake-overlay h2 { font-size: 24px; margin: 0 0 8px; }
+  .snake-overlay p { margin: 0 0 14px; opacity: .85; font-size: 14px; }
+  .snake-overlay .so-word { font-size: 18px; color: #fbbf24; font-weight: 900; margin: 4px 0 12px; text-transform: uppercase; letter-spacing: 2px; }
+  .snake-overlay .btn { min-width: 140px; margin: 4px; }
+  .snake-dpad {
+    display: grid;
+    grid-template-areas: ". up ." "left . right" ". down .";
+    grid-template-columns: 60px 60px 60px;
+    grid-template-rows: 50px 50px 50px;
+    gap: 4px; justify-content: center; margin-top: 10px;
+  }
+  .snake-dpad button {
+    background: #1a1a2e; color: #fff; border: 2px solid #334155;
+    border-radius: 12px; font-size: 22px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+  }
+  .snake-dpad button:active { background: #334155; }
+  .snake-dpad .dp-up { grid-area: up; }
+  .snake-dpad .dp-down { grid-area: down; }
+  .snake-dpad .dp-left { grid-area: left; }
+  .snake-dpad .dp-right { grid-area: right; }
+  .snake-btn-row { display: flex; gap: 8px; justify-content: center; margin-top: 10px; }
 </style>
 </head>
 <body>
@@ -931,7 +992,6 @@ const WORDS = [
   { word: "listen", sentence: "Listen carefully to the music.", tip: "Silent T: lis-T-en.", category: "Silent letters" },
   { word: "knight", sentence: "The brave knight rode his horse.", tip: "Silent K: K-night. Knights are silent and brave!", category: "Silent letters" },
   { word: "knee", sentence: "She bumped her knee on the table.", tip: "Silent K: K-nee.", category: "Silent letters" },
-  { word: "knife", sentence: "Be careful with that knife.", tip: "Silent K: K-nife.", category: "Silent letters" },
   { word: "knowledge", sentence: "Knowledge is power.", tip: "Silent K + DGE ending. K-now-ledge.", category: "Silent letters" },
   { word: "plumber", sentence: "We called a plumber to fix the pipe.", tip: "Silent B: plum-B-er.", category: "Silent letters" },
   { word: "debt", sentence: "She paid off her debt.", tip: "Silent B: deB-t.", category: "Silent letters" },
@@ -1265,6 +1325,7 @@ const defaultState = {
   wordStats: {},          // { word: { attempts, correct, lastSeen, mastery (0-3), lastWrong: bool } }
   unlockedTier: 0,        // for path progression
   sessionHistory: [],     // [{ ts, mode, title, correct, total, score, durationSec }]
+  snakeHighScore: 0,      // highest snake challenge level completed (0–8)
 };
 
 let state = loadState();
@@ -1573,6 +1634,7 @@ const ROUTES = {
   RESULT: 'result',
   STATS: 'stats',
   WORDS: 'words',
+  SNAKE: 'snake',
 };
 
 let view = { route: ROUTES.HOME, data: {} };
@@ -1771,9 +1833,10 @@ function render() {
     case ROUTES.RESULT:  root.appendChild(renderResult()); break;
     case ROUTES.STATS:   root.appendChild(renderStats()); break;
     case ROUTES.WORDS:   root.appendChild(renderWordList()); break;
+    case ROUTES.SNAKE:   root.appendChild(renderSnake()); break;
   }
 
-  if (view.route !== ROUTES.LESSON) {
+  if (view.route !== ROUTES.LESSON && view.route !== ROUTES.SNAKE) {
     root.appendChild(renderNavTabs());
   }
 }
@@ -1872,6 +1935,17 @@ function renderHome() {
   quick.appendChild(chBtn);
 
   c.appendChild(quick);
+
+  // Snake Challenge banner
+  const snakeBtn = document.createElement('button');
+  snakeBtn.className = 'btn';
+  snakeBtn.style.cssText = 'width:100%;padding:16px;margin-bottom:10px;background:linear-gradient(135deg,#1a1a2e,#16213e);color:#fff;border:2px solid #334155;text-align:center;line-height:1.3;';
+  const hs = state.snakeHighScore || 0;
+  snakeBtn.innerHTML = `<div style="font-size:26px;margin-bottom:4px">🐍</div>
+    <div style="font-size:16px;font-weight:900">Snake Challenge</div>
+    <div style="font-size:11px;font-weight:700;opacity:.75;margin-top:4px;text-transform:none;letter-spacing:0">Spell words by collecting letters · 8 levels${hs ? ' · Best: Level ' + hs : ''}</div>`;
+  snakeBtn.onclick = () => startSnakeChallenge();
+  c.appendChild(snakeBtn);
 
   // Mini score trend (only if there's history)
   if ((state.sessionHistory || []).length >= 2) {
@@ -3060,6 +3134,457 @@ function renderNavTabs() {
   wrap.appendChild(make('Lessons', ROUTES.HOME, '🏠'));
   wrap.appendChild(make('Words', ROUTES.WORDS, '📖'));
   wrap.appendChild(make('Stats', ROUTES.STATS, '📊'));
+  return wrap;
+}
+
+/* =========================================================
+   SNAKE CHALLENGE MODE
+   ========================================================= */
+
+const SNAKE_GRID  = 15;
+const SNAKE_LEVELS = 8;
+const SNAKE_SPEEDS = [260, 240, 220, 200, 185, 170, 155, 140]; // ms per tick
+
+let snakeState = null;
+let snakeAnimId  = null;
+let snakeLastTick = 0;
+let snakeTouchX = 0, snakeTouchY = 0;
+
+// Pick 8 words of increasing length for a challenge.
+function pickSnakeWords() {
+  const pool = shuffle(WORDS.slice());
+  pool.sort((a, b) => a.word.length - b.word.length);
+  const bucket = Math.floor(pool.length / SNAKE_LEVELS);
+  const picks = [];
+  for (let i = 0; i < SNAKE_LEVELS; i++) {
+    const lo = i * bucket;
+    const hi = i === SNAKE_LEVELS - 1 ? pool.length : (i + 1) * bucket;
+    const slice = pool.slice(lo, hi);
+    picks.push(slice[Math.floor(Math.random() * slice.length)]);
+  }
+  return picks;
+}
+
+function startSnakeChallenge() {
+  snakeState = {
+    words: pickSnakeWords(),
+    level: 0,
+  };
+  initSnakeLevel(0);
+  go(ROUTES.SNAKE);
+}
+
+function initSnakeLevel(lvl) {
+  const wordObj = snakeState.words[lvl];
+  const word = wordObj.word.toLowerCase();
+  const mid = Math.floor(SNAKE_GRID / 2);
+  Object.assign(snakeState, {
+    level: lvl,
+    wordObj,
+    word,
+    letters: word.split(''),
+    nextLetter: 0,
+    snake: [{ x: mid, y: mid }, { x: mid - 1, y: mid }, { x: mid - 2, y: mid }],
+    dir: { x: 1, y: 0 },
+    nextDir: { x: 1, y: 0 },
+    phase: 'intro',       // intro | playing | won | dead | complete
+    tickMs: SNAKE_SPEEDS[lvl] || 140,
+    letterPositions: [],
+    wrongFlash: null,      // { x, y, t }
+  });
+  snakeState.letterPositions = placeSnakeLetters(word, snakeState.snake);
+}
+
+function placeSnakeLetters(word, snake) {
+  const g = SNAKE_GRID;
+  const occupied = new Set(snake.map(s => s.x + ',' + s.y));
+  const positions = [];
+  for (let i = 0; i < word.length; i++) {
+    let placed = false;
+    for (let attempt = 0; attempt < 200 && !placed; attempt++) {
+      const x = 1 + Math.floor(Math.random() * (g - 2));
+      const y = 1 + Math.floor(Math.random() * (g - 2));
+      const key = x + ',' + y;
+      if (occupied.has(key)) continue;
+      // Min spacing: no letter in the 8 surrounding cells
+      if (positions.some(p => Math.abs(p.x - x) <= 1 && Math.abs(p.y - y) <= 1)) continue;
+      occupied.add(key);
+      positions.push({ ch: word[i], x, y, idx: i, collected: false });
+      placed = true;
+    }
+    if (!placed) {
+      // Fallback: any empty cell
+      for (let y = 1; y < g - 1 && !placed; y++) {
+        for (let x = 1; x < g - 1 && !placed; x++) {
+          const key = x + ',' + y;
+          if (!occupied.has(key)) {
+            occupied.add(key);
+            positions.push({ ch: word[i], x, y, idx: i, collected: false });
+            placed = true;
+          }
+        }
+      }
+    }
+  }
+  return positions;
+}
+
+// --- Snake game loop ---
+
+function startSnakeLoop() {
+  stopSnakeLoop();
+  snakeLastTick = performance.now();
+  function loop(ts) {
+    snakeAnimId = requestAnimationFrame(loop);
+    if (ts - snakeLastTick >= snakeState.tickMs) {
+      snakeLastTick = ts;
+      updateSnake();
+    }
+    drawSnakeCanvas();
+  }
+  snakeAnimId = requestAnimationFrame(loop);
+}
+function stopSnakeLoop() {
+  if (snakeAnimId) { cancelAnimationFrame(snakeAnimId); snakeAnimId = null; }
+}
+
+function updateSnake() {
+  const st = snakeState;
+  if (!st || st.phase !== 'playing') return;
+
+  st.dir = { ...st.nextDir };
+  const head = st.snake[0];
+  const nh = { x: head.x + st.dir.x, y: head.y + st.dir.y };
+
+  // Wall collision
+  if (nh.x < 0 || nh.x >= SNAKE_GRID || nh.y < 0 || nh.y >= SNAKE_GRID) {
+    st.phase = 'dead'; stopSnakeLoop(); renderSnakeOverlay(); return;
+  }
+  // Self collision
+  if (st.snake.some(s => s.x === nh.x && s.y === nh.y)) {
+    st.phase = 'dead'; stopSnakeLoop(); renderSnakeOverlay(); return;
+  }
+
+  st.snake.unshift(nh);
+
+  // Check letter at new head position
+  const hit = st.letterPositions.find(lp => !lp.collected && lp.x === nh.x && lp.y === nh.y);
+  if (hit) {
+    const needed = st.letters[st.nextLetter];
+    if (hit.ch === needed) {
+      hit.collected = true;
+      st.nextLetter++;
+      updateSnakeProgress();
+      // Don't pop tail → snake grows
+      if (st.nextLetter >= st.letters.length) {
+        st.phase = 'won'; stopSnakeLoop();
+        const completed = st.level + 1;
+        if (completed > (state.snakeHighScore || 0)) {
+          state.snakeHighScore = completed;
+          saveState();
+        }
+        if (completed >= SNAKE_LEVELS) {
+          st.phase = 'complete';
+          fireConfetti(100);
+        } else {
+          fireConfetti(40);
+        }
+        renderSnakeOverlay();
+        return;
+      }
+    } else {
+      // Wrong letter: flash red, pass through
+      st.wrongFlash = { x: nh.x, y: nh.y, t: performance.now() };
+      st.snake.pop();
+    }
+  } else {
+    st.snake.pop();
+  }
+}
+
+function setSnakeDir(x, y) {
+  if (!snakeState || snakeState.phase !== 'playing') return;
+  if (snakeState.dir.x === -x && snakeState.dir.y === -y) return; // no reversing
+  snakeState.nextDir = { x, y };
+}
+
+// --- Snake canvas drawing ---
+
+function drawSnakeCanvas() {
+  const canvas = document.getElementById('snake-canvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const size = canvas.width;
+  const cell = size / SNAKE_GRID;
+  const st = snakeState;
+
+  // Background
+  ctx.fillStyle = '#1a1a2e';
+  ctx.fillRect(0, 0, size, size);
+
+  // Subtle grid dots
+  ctx.fillStyle = '#ffffff0a';
+  for (let r = 0; r <= SNAKE_GRID; r++) {
+    for (let c = 0; c <= SNAKE_GRID; c++) {
+      ctx.beginPath();
+      ctx.arc(c * cell, r * cell, 1, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  if (!st) return;
+
+  // Letters
+  const now = performance.now();
+  st.letterPositions.forEach((lp) => {
+    if (lp.collected) return;
+    const cx = lp.x * cell + cell / 2;
+    const cy = lp.y * cell + cell / 2;
+    const isNext = lp.ch === st.letters[st.nextLetter] && !lp.collected;
+
+    // Wrong flash
+    let flashRed = false;
+    if (st.wrongFlash && st.wrongFlash.x === lp.x && st.wrongFlash.y === lp.y && now - st.wrongFlash.t < 400) {
+      flashRed = true;
+    }
+
+    // Letter background circle
+    ctx.beginPath();
+    ctx.arc(cx, cy, cell * 0.4, 0, Math.PI * 2);
+    ctx.fillStyle = flashRed ? '#ef444488' : '#ffffff18';
+    ctx.fill();
+
+    // Letter text
+    ctx.fillStyle = flashRed ? '#fca5a5' : '#ffffffcc';
+    ctx.font = `bold ${Math.round(cell * 0.55)}px system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(lp.ch.toUpperCase(), cx, cy + 1);
+  });
+
+  // Snake
+  st.snake.forEach((s, i) => {
+    const isHead = i === 0;
+    const pad = 1;
+    const r = 4;
+    ctx.fillStyle = isHead ? '#34d399' : '#10b981';
+    ctx.beginPath();
+    ctx.roundRect(s.x * cell + pad, s.y * cell + pad, cell - pad * 2, cell - pad * 2, r);
+    ctx.fill();
+    if (isHead) {
+      // Eyes
+      const ex = s.x * cell + cell / 2;
+      const ey = s.y * cell + cell / 2;
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(ex - cell * 0.15, ey - cell * 0.1, cell * 0.08, 0, Math.PI * 2);
+      ctx.arc(ex + cell * 0.15, ey - cell * 0.1, cell * 0.08, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#1a1a2e';
+      ctx.beginPath();
+      ctx.arc(ex - cell * 0.15 + st.dir.x * 2, ey - cell * 0.1 + st.dir.y * 2, cell * 0.04, 0, Math.PI * 2);
+      ctx.arc(ex + cell * 0.15 + st.dir.x * 2, ey - cell * 0.1 + st.dir.y * 2, cell * 0.04, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  });
+}
+
+// --- Snake input handlers ---
+
+function snakeKeyHandler(e) {
+  const map = { ArrowUp: [0,-1], ArrowDown: [0,1], ArrowLeft: [-1,0], ArrowRight: [1,0] };
+  if (map[e.key]) { e.preventDefault(); setSnakeDir(map[e.key][0], map[e.key][1]); }
+}
+function snakeTouchStart(e) {
+  snakeTouchX = e.touches[0].clientX;
+  snakeTouchY = e.touches[0].clientY;
+}
+function snakeTouchEnd(e) {
+  const dx = e.changedTouches[0].clientX - snakeTouchX;
+  const dy = e.changedTouches[0].clientY - snakeTouchY;
+  if (Math.max(Math.abs(dx), Math.abs(dy)) < 15) return;
+  if (Math.abs(dx) > Math.abs(dy)) setSnakeDir(dx > 0 ? 1 : -1, 0);
+  else setSnakeDir(0, dy > 0 ? 1 : -1);
+}
+function attachSnakeInput() {
+  document.addEventListener('keydown', snakeKeyHandler);
+  const cw = document.querySelector('.snake-canvas-wrap');
+  if (cw) {
+    cw.addEventListener('touchstart', snakeTouchStart, { passive: true });
+    cw.addEventListener('touchend', snakeTouchEnd, { passive: true });
+  }
+}
+function detachSnakeInput() {
+  document.removeEventListener('keydown', snakeKeyHandler);
+}
+
+// --- Update progress bar DOM without full re-render ---
+
+function updateSnakeProgress() {
+  const bar = document.getElementById('snake-progress');
+  if (!bar || !snakeState) return;
+  bar.innerHTML = '';
+  snakeState.letters.forEach((ch, i) => {
+    const span = document.createElement('span');
+    span.className = 'sp-letter ' + (i < snakeState.nextLetter ? 'collected' : i === snakeState.nextLetter ? 'current' : 'blank');
+    span.textContent = i < snakeState.nextLetter ? ch.toUpperCase() : '_';
+    bar.appendChild(span);
+  });
+}
+
+// --- Overlay management (intro/won/dead/complete) without killing canvas ---
+
+function renderSnakeOverlay() {
+  let ov = document.getElementById('snake-overlay');
+  if (!ov) return;
+  const st = snakeState;
+  ov.innerHTML = '';
+  ov.style.display = 'flex';
+
+  if (st.phase === 'intro') {
+    const lvl = st.level + 1;
+    ov.innerHTML = `
+      <h2>Level ${lvl}</h2>
+      <p>Listen to the word, then collect the letters in spelling order!</p>
+      <div class="so-word" id="snake-word-reveal" style="visibility:hidden">${st.word}</div>
+      <button class="btn btn-primary" id="snake-go-btn" style="min-width:160px">🔊 Hear Word</button>
+    `;
+    const goBtn = ov.querySelector('#snake-go-btn');
+    let heard = false;
+    goBtn.onclick = () => {
+      if (!heard) {
+        heard = true;
+        speakSatsStyle(st.wordObj.word, st.wordObj.sentence);
+        goBtn.textContent = '▶ Start!';
+        goBtn.onclick = () => {
+          stopAudio();
+          st.phase = 'playing';
+          ov.style.display = 'none';
+          startSnakeLoop();
+        };
+      }
+    };
+  } else if (st.phase === 'won') {
+    ov.innerHTML = `
+      <h2>✨ Level ${st.level + 1} Complete!</h2>
+      <div class="so-word">${st.word}</div>
+      <p>Great spelling!</p>
+      <button class="btn btn-primary" id="snake-next-btn">Next Level →</button>
+    `;
+    ov.querySelector('#snake-next-btn').onclick = () => {
+      initSnakeLevel(st.level + 1);
+      render();
+    };
+  } else if (st.phase === 'complete') {
+    ov.innerHTML = `
+      <h2>🏆 Challenge Complete!</h2>
+      <p>You conquered all 8 levels!</p>
+      <p style="color:#fbbf24;font-weight:900">Best: Level ${state.snakeHighScore}</p>
+      <div class="snake-btn-row">
+        <button class="btn btn-primary" id="snake-again-btn">Play Again</button>
+        <button class="btn btn-ghost" id="snake-home-btn" style="color:#fff;border-color:#ffffff44">Home</button>
+      </div>
+    `;
+    ov.querySelector('#snake-again-btn').onclick = () => startSnakeChallenge();
+    ov.querySelector('#snake-home-btn').onclick = () => { stopSnakeLoop(); detachSnakeInput(); go(ROUTES.HOME); };
+  } else if (st.phase === 'dead') {
+    ov.innerHTML = `
+      <h2>💀 Oops!</h2>
+      <div class="so-word">${st.word}</div>
+      <p>You crashed! Give it another go.</p>
+      <div class="snake-btn-row">
+        <button class="btn btn-primary" id="snake-retry-btn">🔄 Retry Level</button>
+        <button class="btn btn-ghost" id="snake-quit-btn" style="color:#fff;border-color:#ffffff44">Quit</button>
+      </div>
+    `;
+    ov.querySelector('#snake-retry-btn').onclick = () => {
+      initSnakeLevel(st.level);
+      render();
+    };
+    ov.querySelector('#snake-quit-btn').onclick = () => { stopSnakeLoop(); detachSnakeInput(); go(ROUTES.HOME); };
+  }
+}
+
+// --- Main render for SNAKE route ---
+
+function renderSnake() {
+  const wrap = document.createElement('div');
+  wrap.className = 'snake-wrap';
+  const st = snakeState;
+  if (!st) { go(ROUTES.HOME); return wrap; }
+
+  // HUD
+  const hud = document.createElement('div');
+  hud.className = 'snake-hud';
+  hud.innerHTML = `
+    <span class="snake-level">Level ${st.level + 1} / ${SNAKE_LEVELS}</span>
+    <span class="snake-best">★ Best: Level ${state.snakeHighScore || 0}</span>
+    <button class="close-btn" id="snake-close" style="color:#fff;font-size:18px;background:none;border:none;cursor:pointer;padding:4px 8px">✕</button>
+  `;
+  wrap.appendChild(hud);
+
+  // Progress bar
+  const prog = document.createElement('div');
+  prog.className = 'snake-progress';
+  prog.id = 'snake-progress';
+  st.letters.forEach((ch, i) => {
+    const span = document.createElement('span');
+    span.className = 'sp-letter ' + (i < st.nextLetter ? 'collected' : i === st.nextLetter ? 'current' : 'blank');
+    span.textContent = i < st.nextLetter ? ch.toUpperCase() : '_';
+    prog.appendChild(span);
+  });
+  wrap.appendChild(prog);
+
+  // Canvas + overlay container
+  const cw = document.createElement('div');
+  cw.className = 'snake-canvas-wrap';
+  const canvasSize = Math.min(window.innerWidth - 24, 420);
+  const canvas = document.createElement('canvas');
+  canvas.id = 'snake-canvas';
+  canvas.width = canvasSize;
+  canvas.height = canvasSize;
+  cw.appendChild(canvas);
+
+  const overlay = document.createElement('div');
+  overlay.className = 'snake-overlay';
+  overlay.id = 'snake-overlay';
+  cw.appendChild(overlay);
+  wrap.appendChild(cw);
+
+  // D-pad
+  const dpad = document.createElement('div');
+  dpad.className = 'snake-dpad';
+  dpad.innerHTML = `
+    <button class="dp-up" aria-label="Up">▲</button>
+    <button class="dp-left" aria-label="Left">◀</button>
+    <button class="dp-right" aria-label="Right">▶</button>
+    <button class="dp-down" aria-label="Down">▼</button>
+  `;
+  wrap.appendChild(dpad);
+
+  // Wire up after DOM insert
+  requestAnimationFrame(() => {
+    // D-pad
+    const up = wrap.querySelector('.dp-up');
+    const dn = wrap.querySelector('.dp-down');
+    const lt = wrap.querySelector('.dp-left');
+    const rt = wrap.querySelector('.dp-right');
+    if (up) up.onpointerdown = () => setSnakeDir(0, -1);
+    if (dn) dn.onpointerdown = () => setSnakeDir(0, 1);
+    if (lt) lt.onpointerdown = () => setSnakeDir(-1, 0);
+    if (rt) rt.onpointerdown = () => setSnakeDir(1, 0);
+
+    // Close button
+    const closeBtn = wrap.querySelector('#snake-close');
+    if (closeBtn) closeBtn.onclick = () => {
+      stopSnakeLoop(); detachSnakeInput(); stopAudio(); go(ROUTES.HOME);
+    };
+
+    attachSnakeInput();
+    drawSnakeCanvas();
+    renderSnakeOverlay();
+  });
+
   return wrap;
 }
 
