@@ -3493,7 +3493,8 @@ function snakeKeyHandler(e) {
   if (map[e.key]) { e.preventDefault(); setSnakeDir(map[e.key][0], map[e.key][1]); }
 }
 function snakeTouchStart(e) {
-  e.preventDefault();
+  // Only block default (zoom) when actively playing — allow button taps on overlays
+  if (snakeState && snakeState.phase === 'playing') e.preventDefault();
   snakeTouchX = e.touches[0].clientX;
   snakeTouchY = e.touches[0].clientY;
 }
@@ -3509,7 +3510,7 @@ function attachSnakeInput() {
   const cw = document.querySelector('.snake-canvas-wrap');
   if (cw) {
     cw.addEventListener('touchstart', snakeTouchStart, { passive: false });
-    cw.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+    cw.addEventListener('touchmove', (e) => { if (snakeState && snakeState.phase === 'playing') e.preventDefault(); }, { passive: false });
     cw.addEventListener('touchend', snakeTouchEnd, { passive: true });
   }
 }
